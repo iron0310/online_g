@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fish Game</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      text-align: center;
+      background: #000000;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+      margin: 0 auto;
+      border: 2px solid #333;
+    }
+    #gameOverMenu, #congratulationsMenu, #startMenu {
+      display: none;
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0, 0, 0, 0.8);
+      color: white;
+      padding: 20px;
+      text-align: center;
+      border-radius: 10px;
+    }
+    #gameOverMenu button, #congratulationsMenu button, #startMenu button {
+      padding: 10px 20px;
+      font-size: 16px;
+      margin-top: 10px;
+      cursor: pointer;
+    }
+    #startMenu {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas"></canvas>
+  <div id="startMenu">
+    <h1>Chall.io</h1>
+    <button onclick="startGame()">Start</button>
+  </div>
+  <div id="gameOverMenu">
+    <h1>Game Over</h1>
+    <p id="finalScore"></p>
+    <button onclick="location.reload()">Restart</button>
+  </div>
+  <div id="congratulationsMenu">
+    <h1>Congratulations!</h1>
+    <p>You reached a size of 1500!</p>
+    <button onclick="location.reload()">Restart</button>
+  </div>
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+
+    let worldSize = 9000; // 월드 크기 (정사각형)
+    let gridSize = 100; // 바둑판 한 칸의 크기
+    let miniMapSize = 200; // 미니맵 크기
+    let playerFish = { x: worldSize / 2, y: worldSize / 2, size: 10, speed: 5 };
+    let food = [];
+    let score = 0;
+
+    const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false, w: false, a: false, s: false, d: false };
+    const camera = { x: 0, y: 0, width: canvas.width, height: canvas.height };
+
+    const gameOverMenu = document.getElementById("gameOverMenu");
+    const finalScore = document.getElementById("finalScore");
+    const congratulationsMenu = document.getElementById("congratulationsMenu");
+    const startMenu = document.getElementById("startMenu");
+
+    let isGameOver = false;
+    let isWon = false;
+    let animationId;
+
+    let target = null; // 마우스/터치 입력 위치
+
+    // 캔버스 크기 조정
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      camera.width = canvas.width;
+      camera.height = canvas.height;
+    }
+    window.addEventListener("resize", resizeCanvas);
+    resizeCanvas();
+
+    function startGame() {
+      startMenu.style.display = "none"; // 시작 창 숨기기
+      gameLoop(); // 게임 시작
+    }
+
+    function createFood() {
+      if (isGameOver || isWon) return;
+
+      const y = Math.random() * worldSize;
+      const size = Math.random() > 0.6 ? Math.random() * 975 + 25 : Math.random() * 20 + 5;
+      const direction = Math.random() > 0.5 ? "right" : "left";
+      const x = direction === "right" ? -size : worldSize + size;
+      const speed = Math.random() * 3 + 1;
+      food.push({ x, y, size, speed, direction });
+    }
+
+    function drawGrid() {
+      ctx.strokeStyle = "#cccccc";
+      ctx.lineWidth = 0.5;
+
+      const scale = camera.width / canvas.width;
+
+      for (let y = 0; y <= worldSize; y += gridSize) {
+        const screenY = (y - camera.y) / scale;
+        if (screenY >= 0 && screenY <= canvas.height) {
+          ctx.beginPath();
+          ctx.moveTo(0, screenY);
+          ctx.lineTo(canvas.width, screenY);
+          ctx.stroke();
+        }
+      }
+
+      for (let x = 0; x <= worldSize; x += gridSize) {
+        const screenX = (x - camera.x) / scale;
+        if (screenX >= 0 && screenX <= canvas.width) {
+          ctx.beginPath();
+          ctx.moveTo(screenX, 0);
+          ctx.lineTo(screenX, canvas.height);
+          ctx.stroke();
+        }
+      }
+    }
+
+    function drawPlayer() {
+      const scale = camera.width / canvas.width;
+      const screenX = (playerFish.x - camera.x) / scale;
+      const screenY = (playerFish.y - camera.y) / scale;
+
+      ctx.beginPath();
+      ctx.arc(screenX, screenY, playerFish.size / scale, 0, Math.PI * 2);
+      ctx.fillStyle = "orange";
+      ctx.fill();
+      ctx.closePath();
+    }
+
+    function drawFood() {
+      const scale = camera.width / canvas.width;
+
+      food.forEach((f) => {
+        const screenX = (f.x - camera.x) / scale;
+        const screenY = (f.y - camera.y) / scale;
+
+        if (screenX > -f.size && screenX < canvas.width + f.size &&
+            screenY > -f.size && screenY < canvas.height + f.size) {
+          ctx.beginPath();
+          ctx.arc(screenX, screenY, f.size / scale, 0, Math.PI * 2);
+          ctx.fillStyle = f.size > playerFish.size ? "red" : "green";
+          ctx.fill();
+          ctx.closePath();
+        }
+      });
+    }
+
+    function drawScore() {
+      ctx.font = "20px Arial";
+      ctx.fillStyle = "white";
+      ctx.fillText(`Score: ${score}`, 10, 30);
+    }
+
+    function drawMiniMap() {
+      const scale = miniMapSize / worldSize;
+
+      const miniMapX = canvas.width - miniMapSize - 10;
+      const miniMapY = canvas.height - miniMapSize - 10;
+
+      ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+      ctx.fillRect(miniMapX, miniMapY, miniMapSize, miniMapSize);
+
+      food.forEach((f) => {
+        const foodX = miniMapX + f.x * scale;
+        const foodY = miniMapY + f.y * scale;
+        ctx.fillStyle = f.size > playerFish.size ? "red" : "green";
+        ctx.beginPath();
+        ctx.arc(foodX, foodY, 2, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      const playerX = miniMapX + playerFish.x * scale;
+      const playerY = miniMapY + playerFish.y * scale;
+      ctx.fillStyle = "orange";
+      ctx.beginPath();
+      ctx.arc(playerX, playerY, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function moveFood() {
+      if (isGameOver || isWon) return;
+
+      food.forEach((f, index) => {
+        f.x += f.direction === "right" ? f.speed : -f.speed;
+
+        if (f.x < -f.size || f.x > worldSize + f.size) {
+          food.splice(index, 1);
+        }
+      });
+    }
+
+    function movePlayerToTarget() {
+      if (!target) return;
+
+      const dx = target.x - playerFish.x;
+      const dy = target.y - playerFish.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      if (distance > playerFish.speed) {
+        playerFish.x += (dx / distance) * playerFish.speed;
+        playerFish.y += (dy / distance) * playerFish.speed;
+      } else {
+        playerFish.x = target.x;
+        playerFish.y = target.y;
+        target = null; // 목표 지점 도달 시 정지
+      }
+    }
+
+    function checkCollision() {
+      food.forEach((f, index) => {
+        const dx = playerFish.x - f.x;
+        const dy = playerFish.y - f.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance < playerFish.size + f.size) {
+          if (f.size > playerFish.size) {
+            endGame();
+          } else {
+            score += 1;
+            playerFish.size += f.size / 10;
+            food.splice(index, 1);
+          }
+        }
+      });
+    }
+
+    function updateCamera() {
+      const maxScale = Math.max(1, 100 / 20);
+      const scaleFactor = Math.max(1, playerFish.size / 20);
+      const effectiveScale = Math.min(scaleFactor, maxScale);
+
+      camera.width = canvas.width * effectiveScale;
+      camera.height = canvas.height * effectiveScale;
+
+      camera.x = playerFish.x - camera.width / 2;
+      camera.y = playerFish.y - camera.height / 2;
+
+      if (camera.x < 0) camera.x = 0;
+      if (camera.y < 0) camera.y = 0;
+      if (camera.x + camera.width > worldSize) camera.x = worldSize - camera.width;
+      if (camera.y + camera.height > worldSize) camera.y = worldSize - camera.height;
+    }
+
+    function endGame() {
+      isGameOver = true;
+      gameOverMenu.style.display = "block";
+      finalScore.textContent = `Final Score: ${score}`;
+      cancelAnimationFrame(animationId);
+    }
+
+    function showCongratulations() {
+      isWon = true;
+      congratulationsMenu.style.display = "block";
+      cancelAnimationFrame(animationId);
+    }
+
+    function gameLoop() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      drawGrid();
+      drawPlayer();
+      drawFood();
+      drawScore();
+      drawMiniMap();
+
+      movePlayerToTarget();
+      moveFood();
+      updateCamera();
+      checkCollision();
+
+      if (!isGameOver && !isWon && Math.random() < 0.02) {
+        createFood();
+      }
+
+      animationId = requestAnimationFrame(gameLoop);
+    }
+
+    // 터치 및 마우스 입력 처리
+    canvas.addEventListener("mousedown", (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const scale = camera.width / canvas.width;
+      target = {
+        x: camera.x + (e.clientX - rect.left) * scale,
+        y: camera.y + (e.clientY - rect.top) * scale,
+      };
+    });
+
+    canvas.addEventListener("touchstart", (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const scale = camera.width / canvas.width;
+      const touch = e.touches[0];
+      target = {
+        x: camera.x + (touch.clientX - rect.left) * scale,
+        y: camera.y + (touch.clientY - rect.top) * scale,
+      };
+    });
+
+    window.addEventListener("keydown", (e) => {
+      if (keys.hasOwnProperty(e.key)) keys[e.key] = true;
+    });
+
+    window.addEventListener("keyup", (e) => {
+      if (keys.hasOwnProperty(e.key)) keys[e.key] = false;
+    });
+  </script>
+</body>
+</html>
